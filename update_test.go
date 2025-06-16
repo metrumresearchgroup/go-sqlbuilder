@@ -114,7 +114,7 @@ func ExampleUpdateBuilder_SQL() {
 	fmt.Println(sql)
 
 	// Output:
-	// /* before */ UPDATE demo.user /* after update */ SET type = ? /* after set */ ORDER BY id DESC /* after order by */ LIMIT 10 /* after limit */
+	// /* before */ UPDATE demo.user /* after update */ SET type = ? /* after set */ ORDER BY id DESC /* after order by */ LIMIT ? /* after limit */
 }
 
 func ExampleUpdateBuilder_NumAssignment() {
@@ -135,7 +135,7 @@ func ExampleUpdateBuilder_NumAssignment() {
 
 func ExampleUpdateBuilder_With() {
 	sql := With(
-		CTEQuery("users").As(
+		CTETable("users").As(
 			Select("id", "name").From("users").Where("prime IS NOT NULL"),
 		),
 	).Update("orders").Set(
@@ -147,5 +147,18 @@ func ExampleUpdateBuilder_With() {
 	fmt.Println(sql)
 
 	// Output:
-	// WITH users AS (SELECT id, name FROM users WHERE prime IS NOT NULL) UPDATE orders SET orders.transport_fee = 0 WHERE users.id = orders.user_id
+	// WITH users AS (SELECT id, name FROM users WHERE prime IS NOT NULL) UPDATE orders, users SET orders.transport_fee = 0 WHERE users.id = orders.user_id
+}
+
+func TestUpdateBuilderGetFlavor(t *testing.T) {
+	a := assert.New(t)
+	ub := newUpdateBuilder()
+
+	ub.SetFlavor(PostgreSQL)
+	flavor := ub.Flavor()
+	a.Equal(PostgreSQL, flavor)
+
+	ubClick := ClickHouse.NewUpdateBuilder()
+	flavor = ubClick.Flavor()
+	a.Equal(ClickHouse, flavor)
 }

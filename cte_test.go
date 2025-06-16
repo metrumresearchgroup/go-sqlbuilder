@@ -82,6 +82,43 @@ func ExampleCTEBuilder() {
 	// [users valid_users]
 }
 
+func ExampleCTEBuilder_update() {
+	builder := With(
+		CTETable("users", "user_id").As(
+			Select("user_id").From("vip_users"),
+		),
+	).Update("orders").Set(
+		"orders.transport_fee = 0",
+	).Where(
+		"users.user_id = orders.user_id",
+	)
+
+	sqlForMySQL, _ := builder.BuildWithFlavor(MySQL)
+	sqlForPostgreSQL, _ := builder.BuildWithFlavor(PostgreSQL)
+
+	fmt.Println(sqlForMySQL)
+	fmt.Println(sqlForPostgreSQL)
+
+	// Output:
+	// WITH users (user_id) AS (SELECT user_id FROM vip_users) UPDATE orders, users SET orders.transport_fee = 0 WHERE users.user_id = orders.user_id
+	// WITH users (user_id) AS (SELECT user_id FROM vip_users) UPDATE orders SET orders.transport_fee = 0 FROM users WHERE users.user_id = orders.user_id
+}
+
+func ExampleCTEBuilder_delete() {
+	sql := With(
+		CTETable("users", "user_id").As(
+			Select("user_id").From("cheaters"),
+		),
+	).DeleteFrom("awards").Where(
+		"users.user_id = awards.user_id",
+	).String()
+
+	fmt.Println(sql)
+
+	// Output:
+	// WITH users (user_id) AS (SELECT user_id FROM cheaters) DELETE FROM awards, users WHERE users.user_id = awards.user_id
+}
+
 func TestCTEBuilder(t *testing.T) {
 	a := assert.New(t)
 	cteb := newCTEBuilder()
@@ -129,4 +166,30 @@ func TestRecursiveCTEBuilder(t *testing.T) {
 
 	sql = ctetb.String()
 	a.Equal(sql, "/* table init */ t (a, b) /* after table */ AS (SELECT a, b FROM t) /* after table as */")
+}
+
+func TestCTEGetFlavor(t *testing.T) {
+	a := assert.New(t)
+	cteb := newCTEBuilder()
+
+	cteb.SetFlavor(PostgreSQL)
+	flavor := cteb.Flavor()
+	a.Equal(PostgreSQL, flavor)
+
+	ctebClick := ClickHouse.NewCTEBuilder()
+	flavor = ctebClick.Flavor()
+	a.Equal(ClickHouse, flavor)
+}
+
+func TestCTEQueryBuilderGetFlavor(t *testing.T) {
+	a := assert.New(t)
+	ctetb := newCTEQueryBuilder()
+
+	ctetb.SetFlavor(PostgreSQL)
+	flavor := ctetb.Flavor()
+	a.Equal(PostgreSQL, flavor)
+
+	ctetbClick := ClickHouse.NewCTEQueryBuilder()
+	flavor = ctetbClick.Flavor()
+	a.Equal(ClickHouse, flavor)
 }

@@ -23,7 +23,7 @@ func TestArgs(t *testing.T) {
 	cases := map[string][]interface{}{
 		"abc ? def\n[123]":                   {"abc $? def", 123},
 		"abc ? def\n[456]":                   {"abc $0 def", 456},
-		"abc  def\n[]":                       {"abc $1 def", 123},
+		"abc /* INVALID ARG $1 */ def\n[]":   {"abc $1 def", 123},
 		"abc  def \n[]":                      {"abc ${unknown} def ", 123},
 		"abc $ def\n[]":                      {"abc $$ def", 123},
 		"abcdef$\n[]":                        {"abcdef$", 123},
@@ -137,4 +137,18 @@ func TestArgsAdd(t *testing.T) {
 		actual := args.Add(i)
 		a.Equal(actual, fmt.Sprintf("$%v", i))
 	}
+}
+
+func TestArgsValue(t *testing.T) {
+	a := assert.New(t)
+	args := &Args{}
+
+	v1 := 123
+	arg1 := args.Add(v1)
+	argInvalid := "invalid"
+	argLooselyTyped := arg1 + "something else"
+
+	a.Equal(v1, args.Value(arg1))
+	a.Equal(nil, args.Value(argInvalid))
+	a.Equal(v1, args.Value(argLooselyTyped))
 }

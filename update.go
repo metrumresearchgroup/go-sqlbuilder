@@ -5,7 +5,6 @@ package sqlbuilder
 
 import (
 	"fmt"
-	"strconv"
 )
 
 const (
@@ -33,7 +32,6 @@ func newUpdateBuilder() *UpdateBuilder {
 		Cond: Cond{
 			Args: args,
 		},
-		limit:     -1,
 		args:      args,
 		injection: newInjection(),
 	}
@@ -47,12 +45,14 @@ type UpdateBuilder struct {
 	whereClauseProxy *whereClauseProxy
 	whereClauseExpr  string
 
-	cteBuilder  string
-	table       string
+	cteBuilderVar string
+	cteBuilder    *CTEBuilder
+
+	tables      []string
 	assignments []string
 	orderByCols []string
 	order       string
-	limit       int
+	limitVar    string
 
 	args *Args
 
@@ -63,22 +63,44 @@ type UpdateBuilder struct {
 var _ Builder = new(UpdateBuilder)
 
 // Update sets table name in UPDATE.
-func Update(table string) *UpdateBuilder {
-	return DefaultFlavor.NewUpdateBuilder().Update(table)
+func Update(table ...string) *UpdateBuilder {
+	return DefaultFlavor.NewUpdateBuilder().Update(table...)
 }
 
 // With sets WITH clause (the Common Table Expression) before UPDATE.
 func (ub *UpdateBuilder) With(builder *CTEBuilder) *UpdateBuilder {
 	ub.marker = updateMarkerAfterWith
-	ub.cteBuilder = ub.Var(builder)
+	ub.cteBuilderVar = ub.Var(builder)
+	ub.cteBuilder = builder
 	return ub
 }
 
 // Update sets table name in UPDATE.
-func (ub *UpdateBuilder) Update(table string) *UpdateBuilder {
-	ub.table = Escape(table)
+func (ub *UpdateBuilder) Update(table ...string) *UpdateBuilder {
+	ub.tables = table
 	ub.marker = updateMarkerAfterUpdate
 	return ub
+}
+
+// TableNames returns all table names in this UPDATE statement.
+func (ub *UpdateBuilder) TableNames() (tableNames []string) {
+	var additionalTableNames []string
+
+	if ub.cteBuilder != nil {
+		additionalTableNames = ub.cteBuilder.tableNamesForFrom()
+	}
+
+	if len(ub.tables) > 0 && len(additionalTableNames) > 0 {
+		tableNames = make([]string, len(ub.tables)+len(additionalTableNames))
+		copy(tableNames, ub.tables)
+		copy(tableNames[len(ub.tables):], additionalTableNames)
+	} else if len(ub.tables) > 0 {
+		tableNames = ub.tables
+	} else if len(additionalTableNames) > 0 {
+		tableNames = additionalTableNames
+	}
+
+	return tableNames
 }
 
 // Set sets the assignments in SET.
@@ -97,7 +119,7 @@ func (ub *UpdateBuilder) SetMore(assignment ...string) *UpdateBuilder {
 
 // Where sets expressions of WHERE in UPDATE.
 func (ub *UpdateBuilder) Where(andExpr ...string) *UpdateBuilder {
-	if len(andExpr) == 0 {
+	if len(andExpr) == 0 || estimateStringsBytes(andExpr) == 0 {
 		return ub
 	}
 
@@ -184,7 +206,12 @@ func (ub *UpdateBuilder) Desc() *UpdateBuilder {
 
 // Limit sets the LIMIT in UPDATE.
 func (ub *UpdateBuilder) Limit(limit int) *UpdateBuilder {
-	ub.limit = limit
+	if limit < 0 {
+		ub.limitVar = ""
+		return ub
+	}
+
+	ub.limitVar = ub.Var(limit)
 	ub.marker = updateMarkerAfterLimit
 	return ub
 }
@@ -212,24 +239,48 @@ func (ub *UpdateBuilder) BuildWithFlavor(flavor Flavor, initialArg ...interface{
 	buf := newStringBuilder()
 	ub.injection.WriteTo(buf, updateMarkerInit)
 
-	if ub.cteBuilder != "" {
-		buf.WriteLeadingString(ub.cteBuilder)
+	if ub.cteBuilder != nil {
+		buf.WriteLeadingString(ub.cteBuilderVar)
 		ub.injection.WriteTo(buf, updateMarkerAfterWith)
 	}
 
-	if len(ub.table) > 0 {
-		buf.WriteLeadingString("UPDATE ")
-		buf.WriteString(ub.table)
+	switch flavor {
+	case MySQL:
+		// CTE table names should be written after UPDATE keyword in MySQL.
+		tableNames := ub.TableNames()
+
+		if len(tableNames) > 0 {
+			buf.WriteLeadingString("UPDATE ")
+			buf.WriteStrings(tableNames, ", ")
+		}
+
+	default:
+		if len(ub.tables) > 0 {
+			buf.WriteLeadingString("UPDATE ")
+			buf.WriteStrings(ub.tables, ", ")
+		}
 	}
 
 	ub.injection.WriteTo(buf, updateMarkerAfterUpdate)
 
-	if len(ub.assignments) > 0 {
+	if assignments := filterEmptyStrings(ub.assignments); len(assignments) > 0 {
 		buf.WriteLeadingString("SET ")
-		buf.WriteStrings(ub.assignments, ", ")
+		buf.WriteStrings(assignments, ", ")
 	}
 
 	ub.injection.WriteTo(buf, updateMarkerAfterSet)
+
+	if flavor != MySQL {
+		// For ISO SQL, CTE table names should be written after FROM keyword.
+		if ub.cteBuilder != nil {
+			cteTableNames := ub.cteBuilder.tableNamesForFrom()
+
+			if len(cteTableNames) > 0 {
+				buf.WriteLeadingString("FROM ")
+				buf.WriteStrings(cteTableNames, ", ")
+			}
+		}
+	}
 
 	if ub.WhereClause != nil {
 		ub.whereClauseProxy.WhereClause = ub.WhereClause
@@ -252,9 +303,9 @@ func (ub *UpdateBuilder) BuildWithFlavor(flavor Flavor, initialArg ...interface{
 		ub.injection.WriteTo(buf, updateMarkerAfterOrderBy)
 	}
 
-	if ub.limit >= 0 {
+	if len(ub.limitVar) > 0 {
 		buf.WriteLeadingString("LIMIT ")
-		buf.WriteString(strconv.Itoa(ub.limit))
+		buf.WriteString(ub.limitVar)
 
 		ub.injection.WriteTo(buf, updateMarkerAfterLimit)
 	}
@@ -267,6 +318,11 @@ func (ub *UpdateBuilder) SetFlavor(flavor Flavor) (old Flavor) {
 	old = ub.args.Flavor
 	ub.args.Flavor = flavor
 	return
+}
+
+// Flavor returns flavor of builder
+func (ub *UpdateBuilder) Flavor() Flavor {
+	return ub.args.Flavor
 }
 
 // SQL adds an arbitrary sql to current position.

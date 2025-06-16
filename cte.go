@@ -112,6 +112,11 @@ func (cteb *CTEBuilder) SetFlavor(flavor Flavor) (old Flavor) {
 	return
 }
 
+// Flavor returns flavor of builder
+func (cteb *CTEBuilder) Flavor() Flavor {
+	return cteb.args.Flavor
+}
+
 // SQL adds an arbitrary sql to current position.
 func (cteb *CTEBuilder) SQL(sql string) *CTEBuilder {
 	cteb.injection.SQL(cteb.marker, sql)
@@ -133,12 +138,12 @@ func (cteb *CTEBuilder) TableNames() []string {
 	return tableNames
 }
 
-// tableNamesForSelect returns a list of table names which should be automatically added to FROM clause.
-// It's not public, as this feature is designed only for SelectBuilder right now.
-func (cteb *CTEBuilder) tableNamesForSelect() []string {
+// tableNamesForFrom returns a list of table names which should be automatically added to FROM clause.
+// It's not public, as this feature is designed only for SelectBuilder/UpdateBuilder/DeleteBuilder right now.
+func (cteb *CTEBuilder) tableNamesForFrom() []string {
 	cnt := 0
 
-	// It's rare that the ShouldAddToTableList() returns true.
+	// ShouldAddToTableList() unlikely returns true.
 	// Count it before allocating any memory for better performance.
 	for _, query := range cteb.queries {
 		if query.ShouldAddToTableList() {

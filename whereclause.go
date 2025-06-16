@@ -38,8 +38,14 @@ type clause struct {
 }
 
 func (c *clause) Build(flavor Flavor, initialArg ...interface{}) (sql string, args []interface{}) {
+	exprs := filterEmptyStrings(c.andExprs)
+
+	if len(exprs) == 0 {
+		return
+	}
+
 	buf := newStringBuilder()
-	buf.WriteStrings(c.andExprs, " AND ")
+	buf.WriteStrings(exprs, " AND ")
 	sql, args = c.args.CompileWithFlavor(buf.String(), flavor, initialArg...)
 	return
 }
@@ -86,9 +92,20 @@ func (wc *WhereClause) SetFlavor(flavor Flavor) (old Flavor) {
 	return
 }
 
+// Flavor returns flavor of clause
+func (wc *WhereClause) Flavor() Flavor {
+	return wc.flavor
+}
+
 // AddWhereExpr adds an AND expression to WHERE clause with the specified arguments.
 func (wc *WhereClause) AddWhereExpr(args *Args, andExpr ...string) *WhereClause {
 	if len(andExpr) == 0 {
+		return wc
+	}
+
+	andExprsBytesLen := estimateStringsBytes(andExpr)
+
+	if andExprsBytesLen == 0 {
 		return wc
 	}
 

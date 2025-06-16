@@ -3,10 +3,6 @@
 
 package sqlbuilder
 
-import (
-	"strconv"
-)
-
 const (
 	deleteMarkerInit injectionMarker = iota
 	deleteMarkerAfterWith
@@ -31,7 +27,6 @@ func newDeleteBuilder() *DeleteBuilder {
 		Cond: Cond{
 			Args: args,
 		},
-		limit:     -1,
 		args:      args,
 		injection: newInjection(),
 	}
@@ -45,11 +40,13 @@ type DeleteBuilder struct {
 	whereClauseProxy *whereClauseProxy
 	whereClauseExpr  string
 
-	cteBuilder  string
-	table       string
+	cteBuilderVar string
+	cteBuilder    *CTEBuilder
+
+	tables      []string
 	orderByCols []string
 	order       string
-	limit       int
+	limitVar    string
 
 	args *Args
 
@@ -60,27 +57,51 @@ type DeleteBuilder struct {
 var _ Builder = new(DeleteBuilder)
 
 // DeleteFrom sets table name in DELETE.
-func DeleteFrom(table string) *DeleteBuilder {
-	return DefaultFlavor.NewDeleteBuilder().DeleteFrom(table)
+func DeleteFrom(table ...string) *DeleteBuilder {
+	return DefaultFlavor.NewDeleteBuilder().DeleteFrom(table...)
 }
 
 // With sets WITH clause (the Common Table Expression) before DELETE.
 func (db *DeleteBuilder) With(builder *CTEBuilder) *DeleteBuilder {
 	db.marker = deleteMarkerAfterWith
-	db.cteBuilder = db.Var(builder)
+	db.cteBuilderVar = db.Var(builder)
+	db.cteBuilder = builder
 	return db
 }
 
 // DeleteFrom sets table name in DELETE.
-func (db *DeleteBuilder) DeleteFrom(table string) *DeleteBuilder {
-	db.table = Escape(table)
+func (db *DeleteBuilder) DeleteFrom(table ...string) *DeleteBuilder {
+	db.tables = table
 	db.marker = deleteMarkerAfterDeleteFrom
 	return db
 }
 
+// TableNames returns all table names in this DELETE statement.
+func (db *DeleteBuilder) TableNames() []string {
+	var additionalTableNames []string
+
+	if db.cteBuilder != nil {
+		additionalTableNames = db.cteBuilder.tableNamesForFrom()
+	}
+
+	var tableNames []string
+
+	if len(db.tables) > 0 && len(additionalTableNames) > 0 {
+		tableNames = make([]string, len(db.tables)+len(additionalTableNames))
+		copy(tableNames, db.tables)
+		copy(tableNames[len(db.tables):], additionalTableNames)
+	} else if len(db.tables) > 0 {
+		tableNames = db.tables
+	} else if len(additionalTableNames) > 0 {
+		tableNames = additionalTableNames
+	}
+
+	return tableNames
+}
+
 // Where sets expressions of WHERE in DELETE.
 func (db *DeleteBuilder) Where(andExpr ...string) *DeleteBuilder {
-	if len(andExpr) == 0 {
+	if len(andExpr) == 0 || estimateStringsBytes(andExpr) == 0 {
 		return db
 	}
 
@@ -126,7 +147,12 @@ func (db *DeleteBuilder) Desc() *DeleteBuilder {
 
 // Limit sets the LIMIT in DELETE.
 func (db *DeleteBuilder) Limit(limit int) *DeleteBuilder {
-	db.limit = limit
+	if limit < 0 {
+		db.limitVar = ""
+		return db
+	}
+
+	db.limitVar = db.Var(limit)
 	db.marker = deleteMarkerAfterLimit
 	return db
 }
@@ -149,14 +175,16 @@ func (db *DeleteBuilder) BuildWithFlavor(flavor Flavor, initialArg ...interface{
 	buf := newStringBuilder()
 	db.injection.WriteTo(buf, deleteMarkerInit)
 
-	if db.cteBuilder != "" {
-		buf.WriteLeadingString(db.cteBuilder)
+	if db.cteBuilder != nil {
+		buf.WriteLeadingString(db.cteBuilderVar)
 		db.injection.WriteTo(buf, deleteMarkerAfterWith)
 	}
 
-	if len(db.table) > 0 {
+	tableNames := db.TableNames()
+
+	if len(tableNames) > 0 {
 		buf.WriteLeadingString("DELETE FROM ")
-		buf.WriteString(db.table)
+		buf.WriteStrings(tableNames, ", ")
 	}
 
 	db.injection.WriteTo(buf, deleteMarkerAfterDeleteFrom)
@@ -183,9 +211,9 @@ func (db *DeleteBuilder) BuildWithFlavor(flavor Flavor, initialArg ...interface{
 		db.injection.WriteTo(buf, deleteMarkerAfterOrderBy)
 	}
 
-	if db.limit >= 0 {
+	if len(db.limitVar) > 0 {
 		buf.WriteLeadingString("LIMIT ")
-		buf.WriteString(strconv.Itoa(db.limit))
+		buf.WriteString(db.limitVar)
 
 		db.injection.WriteTo(buf, deleteMarkerAfterLimit)
 	}
@@ -198,6 +226,11 @@ func (db *DeleteBuilder) SetFlavor(flavor Flavor) (old Flavor) {
 	old = db.args.Flavor
 	db.args.Flavor = flavor
 	return
+}
+
+// Flavor returns flavor of builder
+func (db *DeleteBuilder) Flavor() Flavor {
+	return db.args.Flavor
 }
 
 // SQL adds an arbitrary sql to current position.

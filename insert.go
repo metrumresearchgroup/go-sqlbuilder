@@ -14,6 +14,7 @@ const (
 	insertMarkerAfterCols
 	insertMarkerAfterValues
 	insertMarkerAfterSelect
+	insertMarkerAfterReturning
 )
 
 // NewInsertBuilder creates a new INSERT builder.
@@ -32,10 +33,11 @@ func newInsertBuilder() *InsertBuilder {
 
 // InsertBuilder is a builder to build INSERT.
 type InsertBuilder struct {
-	verb   string
-	table  string
-	cols   []string
-	values [][]string
+	verb      string
+	table     string
+	cols      []string
+	values    [][]string
+	returning []string
 
 	args *Args
 
@@ -109,6 +111,14 @@ func (ib *InsertBuilder) Values(value ...interface{}) *InsertBuilder {
 
 	ib.values = append(ib.values, placeholders)
 	ib.marker = insertMarkerAfterValues
+	return ib
+}
+
+// Returning sets returning columns.
+// For DBMS that doesn't support RETURNING, e.g. MySQL, it will be ignored.
+func (ib *InsertBuilder) Returning(col ...string) *InsertBuilder {
+	ib.returning = col
+	ib.marker = insertMarkerAfterReturning
 	return ib
 }
 
@@ -203,6 +213,15 @@ func (ib *InsertBuilder) BuildWithFlavor(flavor Flavor, initialArg ...interface{
 
 	ib.injection.WriteTo(buf, insertMarkerAfterValues)
 
+	if flavor == PostgreSQL || flavor == SQLite {
+		if len(ib.returning) > 0 {
+			buf.WriteLeadingString("RETURNING ")
+			buf.WriteStrings(ib.returning, ", ")
+		}
+
+		ib.injection.WriteTo(buf, insertMarkerAfterReturning)
+	}
+
 	return ib.args.CompileWithFlavor(buf.String(), flavor, initialArg...)
 }
 
@@ -211,6 +230,11 @@ func (ib *InsertBuilder) SetFlavor(flavor Flavor) (old Flavor) {
 	old = ib.args.Flavor
 	ib.args.Flavor = flavor
 	return
+}
+
+// Flavor returns flavor of builder
+func (ib *InsertBuilder) Flavor() Flavor {
+	return ib.args.Flavor
 }
 
 // Var returns a placeholder for value.

@@ -54,8 +54,8 @@ func ExampleUnionAll() {
 	fmt.Println(args)
 
 	// Output:
-	// (SELECT id, name, created_at FROM demo.user WHERE id > ?) UNION ALL (TABLE demo.user_profile) ORDER BY created_at ASC LIMIT 100 OFFSET 5
-	// [1234]
+	// (SELECT id, name, created_at FROM demo.user WHERE id > ?) UNION ALL (TABLE demo.user_profile) ORDER BY created_at ASC LIMIT ? OFFSET ?
+	// [1234 100 5]
 }
 
 func ExampleUnionBuilder_SQL() {
@@ -80,7 +80,7 @@ func ExampleUnionBuilder_SQL() {
 	fmt.Println(sql)
 
 	// Output:
-	// /* before */ (SELECT id, name, created_at FROM demo.user) UNION (SELECT id, avatar FROM demo.user_profile) /* after union */ ORDER BY created_at DESC /* after order by */ LIMIT 100 OFFSET 5 /* after limit */
+	// /* before */ (SELECT id, name, created_at FROM demo.user) UNION (SELECT id, avatar FROM demo.user_profile) /* after union */ ORDER BY created_at DESC /* after order by */ LIMIT ? OFFSET ? /* after limit */
 }
 
 func TestUnionForSQLite(t *testing.T) {
@@ -90,4 +90,17 @@ func TestUnionForSQLite(t *testing.T) {
 	sql, _ := UnionAll(sb1, sb2).OrderBy("id").BuildWithFlavor(SQLite)
 
 	a.Equal(sql, "SELECT id, name FROM users WHERE created_at > DATE('now', '-15 days') UNION ALL SELECT id, nick_name FROM user_extras WHERE status IN (1, 2, 3) ORDER BY id")
+}
+
+func TestUnionBuilderGetFlavor(t *testing.T) {
+	a := assert.New(t)
+	ub := newUnionBuilder()
+
+	ub.SetFlavor(PostgreSQL)
+	flavor := ub.Flavor()
+	a.Equal(PostgreSQL, flavor)
+
+	ubClick := ClickHouse.NewUnionBuilder()
+	flavor = ubClick.Flavor()
+	a.Equal(ClickHouse, flavor)
 }

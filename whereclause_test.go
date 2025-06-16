@@ -245,7 +245,20 @@ func TestWhereClauseSharedInstances(t *testing.T) {
 
 func TestEmptyWhereExpr(t *testing.T) {
 	a := assert.New(t)
-	var emptyExpr []string
+	blankExprs := []string{"", ""}
+	sb := Select("*").From("t").Where(blankExprs...)
+	ub := Update("t").Set("foo = 1").Where(blankExprs...)
+	db := DeleteFrom("t").Where(blankExprs...)
+
+	a.Equal(sb.String(), "SELECT * FROM t")
+	a.Equal(ub.String(), "UPDATE t SET foo = 1")
+	a.Equal(db.String(), "DELETE FROM t")
+}
+
+func TestEmptyStringsWhere(t *testing.T) {
+	a := assert.New(t)
+	emptyExpr := []string{"", "", ""}
+
 	sb := Select("*").From("t").Where(emptyExpr...)
 	ub := Update("t").Set("foo = 1").Where(emptyExpr...)
 	db := DeleteFrom("t").Where(emptyExpr...)
@@ -253,4 +266,67 @@ func TestEmptyWhereExpr(t *testing.T) {
 	a.Equal(sb.String(), "SELECT * FROM t")
 	a.Equal(ub.String(), "UPDATE t SET foo = 1")
 	a.Equal(db.String(), "DELETE FROM t")
+}
+
+func TestEmptyAddWhereExpr(t *testing.T) {
+	a := assert.New(t)
+	var emptyExpr []string
+	sb := Select("*").From("t")
+	ub := Update("t").Set("foo = 1")
+	db := DeleteFrom("t")
+
+	cond := NewCond()
+	whereClause := NewWhereClause().AddWhereExpr(
+		cond.Args,
+		emptyExpr...,
+	)
+
+	sb.AddWhereClause(whereClause)
+	ub.AddWhereClause(whereClause)
+	db.AddWhereClause(whereClause)
+
+	a.Equal(sb.String(), "SELECT * FROM t ")
+	a.Equal(ub.String(), "UPDATE t SET foo = 1 ")
+	a.Equal(db.String(), "DELETE FROM t ")
+}
+
+func TestEmptyStringsWhereAddWhereExpr(t *testing.T) {
+	a := assert.New(t)
+	emptyExpr := []string{"", "", ""}
+	sb := Select("*").From("t")
+	ub := Update("t").Set("foo = 1")
+	db := DeleteFrom("t")
+
+	cond := NewCond()
+	whereClause := NewWhereClause().AddWhereExpr(
+		cond.Args,
+		emptyExpr...,
+	)
+
+	sb.AddWhereClause(whereClause)
+	ub.AddWhereClause(whereClause)
+	db.AddWhereClause(whereClause)
+
+	a.Equal(sb.String(), "SELECT * FROM t ")
+	a.Equal(ub.String(), "UPDATE t SET foo = 1 ")
+	a.Equal(db.String(), "DELETE FROM t ")
+}
+
+func TestWhereClauseGetFlavor(t *testing.T) {
+	a := assert.New(t)
+	wc := NewWhereClause()
+	wc.SetFlavor(PostgreSQL)
+	flavor := wc.Flavor()
+	a.Equal(PostgreSQL, flavor)
+}
+
+func TestWhereClauseCopyGetFlavor(t *testing.T) {
+	a := assert.New(t)
+
+	wc := NewWhereClause()
+	wc.SetFlavor(PostgreSQL)
+
+	wcCopy := CopyWhereClause(wc)
+	flavor := wcCopy.Flavor()
+	a.Equal(PostgreSQL, flavor)
 }
